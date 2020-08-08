@@ -103,3 +103,6 @@ target_link_libraries( path-tracer ${ALL_R2T2_LIBS} )
 
 add_executable ( split-rays src/frontend/split-rays.cc )
 target_link_libraries( split-rays ${ALL_R2T2_LIBS} )
+
+add_executable ( ray-client src/frontend/ray-client.cc )
+target_link_libraries( ray-client ${ALL_R2T2_LIBS} )

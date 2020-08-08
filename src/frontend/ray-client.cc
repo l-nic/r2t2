@@ -21,87 +21,76 @@
 #define RAY_MSG_LOAD_ID 1 // Switches to initiators
 #define RAY_MSG_ID 2 // Regular rays in transit
 
+#define SERVER_IP_ADDR "127.0.0.1"
 #define SERVER_PORT 5000
-const int CONN_BACKLOG = 32;
 
 
 using namespace std;
 
-int _server_fd = -1;
-map<uint32_t, int> _treelet_handles;
+int _ray_generator_fd = -1;
+uint32_t _treelet_id = -1;
 
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
 
 void usage( char* argv0 )
 {
-  cerr << argv0 << " SCENE-PATH [SAMPLES-PER-PIXEL]" << endl;
+  cerr << argv0 << " SCENE-PATH [SAMPLES-PER-PIXEL] TREELET_ID" << endl;
 }
 
-int start_server_socket(uint16_t port) {
-  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sockfd < 0) {
-    cerr << "Server socket creation failed." << endl;
-    return -1;
-  }
-  int sockopt_enable = 1;
-  int setopt_retval = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &sockopt_enable, sizeof(int));
-  if (setopt_retval < 0) {
-    cerr << "Server socket bind bind failure." << endl;
-    return -1;
-  }
-  struct sockaddr_in addr;
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
-  addr.sin_addr.s_addr = htonl(INADDR_ANY);
-  int bind_retval = bind(sockfd, (struct sockaddr*)&addr, sizeof(addr));
-  if (bind_retval < 0) {
-    cerr << "Server socket bind failure." << endl;
-    return -1;
-  }
-  int listen_retval = listen(sockfd, CONN_BACKLOG);
-  if (listen_retval < 0) {
-    cerr << "Server socket listen failure." << endl;
-    return -1;
-  }
-  return sockfd;
-}
-
-int accept_client_connections(uint32_t num_connections) {
-  for (uint32_t i = 0; i < num_connections; i++) {
+int start_client_socket(const char* ip_address, uint16_t port) {
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        return -1;
+    }
+    struct in_addr network_order_address;
+    int ip_conversion_retval = inet_aton(ip_address, &network_order_address);
+    if (ip_conversion_retval < 0) {
+        return -1;
+    }
     struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-    printf("Waiting for client connection %d of %d...\n", i, num_connections);
-    int connectionfd = accept(_server_fd, (struct sockaddr*)&addr, &addr_len);
-    if (connectionfd < 0) {
-      cerr << "Server connection accept attempt " << i << " failed." << endl;
-      return -1;
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr = network_order_address;
+    int connect_retval = connect(sockfd, (struct sockaddr*)&addr, sizeof(addr));
+    if (connect_retval < 0) {
+        return -1;
     }
-    if (addr.sin_family != AF_INET) {
-      cerr << "Server accepted non-internet connection on iteration " << i << endl;
-      return -1;
+    ssize_t written_len = write(sockfd, &_treelet_id, sizeof(uint32_t));
+    if (written_len <= 0) {
+        return -1;
     }
-    uint32_t treelet = 0;
-    ssize_t actual_len = read(connectionfd, &treelet, sizeof(uint32_t));
-    if (actual_len <= 0) {
-      cerr << "Unable to read treelet id from new connection " << i << endl;
-      return -1;
-    }
-    if (treelet >= num_connections) {
-      fprintf(stderr, "Treelet id %d received on iteration %d is >= max number of connections %d\n", treelet, i, num_connections);
-    }
-    printf("Got treelet id %d\n", treelet);
-    _treelet_handles[treelet] = connectionfd;
-  }
-  return 0;
+    return sockfd;
 }
 
-void send_to_client(uint32_t current_treelet, char* ray_buffer, uint64_t actual_len) {
-  int write_fd = _treelet_handles[current_treelet];
-  ssize_t written_len = write(write_fd, ray_buffer, actual_len);
-  if (written_len <= 0) {
-    cerr << "Error writing to treelet " << current_treelet << endl;
-  }
+int read_from_generator(char* buffer, uint32_t* data_len) {
+    printf("Reading from generator\n");
+    uint32_t header_buf[2];
+    ssize_t total_len = 0;
+    ssize_t actual_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, (char*)&header_buf + total_len, 2*sizeof(uint32_t) - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < 2*sizeof(uint32_t));
+    printf("Got id %d and message size %d\n", header_buf[0], header_buf[1]);
+    if (header_buf[0] != RAY_MSG_LOAD_ID) {
+        return -1;
+    }
+
+    total_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, buffer + total_len, header_buf[1] - total_len);
+        total_len += actual_len;
+        printf("Read %d bytes\n", actual_len);
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < header_buf[1]);
+    *data_len = total_len;
+    return 0;
 }
 
 int main( int argc, char* argv[] )
@@ -110,7 +99,7 @@ int main( int argc, char* argv[] )
     abort();
   }
 
-  if ( argc < 2 ) {
+  if ( argc < 3 ) {
     usage( argv[0] );
     return EXIT_FAILURE;
   }
@@ -118,6 +107,7 @@ int main( int argc, char* argv[] )
   const size_t max_depth = 5;
   const string scene_path { argv[1] };
   const size_t samples_per_pixel = ( argc > 2 ) ? stoull( argv[2] ) : 0;
+  _treelet_id = stoull(argv[3]);
 
   /* (1) loading the scene */
   auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
@@ -129,13 +119,9 @@ int main( int argc, char* argv[] )
     treelets.push_back( pbrt::scene::LoadTreelet( scene_path, i ) );
   }
 
-  _server_fd = start_server_socket(SERVER_PORT);
-  if (_server_fd < 0) {
-    return -1;
-  }
-  int client_connections_retval = accept_client_connections(scene_base.GetTreeletCount());
-  if (client_connections_retval < 0) {
-    return -1;
+  _ray_generator_fd = start_client_socket(SERVER_IP_ADDR, SERVER_PORT);
+  if (_ray_generator_fd < 0) {
+      return -1;
   }
 
   /* (3) generating all the initial rays */
@@ -143,22 +129,18 @@ int main( int argc, char* argv[] )
 
   for ( const auto pixel : scene_base.sampleBounds ) {
     for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
-      pbrt::RayStatePtr current_ray = pbrt::graphics::GenerateCameraRay( scene_base.camera,
-                                           pixel,
-                                           sample,
-                                           max_depth,
-                                           scene_base.sampleExtent,
-                                           scene_base.sampler );
-      uint64_t packed_ray_size = pbrt::RayState::MaxPackedSize + 2*sizeof(uint32_t);
-      char* ray_buffer = new char[packed_ray_size];
-      uint32_t ray_msg_load_id = RAY_MSG_LOAD_ID;
-      memcpy(ray_buffer, &ray_msg_load_id, sizeof(uint32_t));
-      uint64_t actual_len = current_ray->Serialize(ray_buffer + sizeof(uint32_t));
-      send_to_client(current_ray->CurrentTreelet(), ray_buffer, actual_len + sizeof(uint32_t));
-      delete [] ray_buffer;
+      char* buffer = new char[pbrt::RayState::MaxPackedSize];
+      uint32_t data_len;
+      int read_retval = read_from_generator(buffer, &data_len);
+      if (read_retval < 0) {
+          return -1;
+      }
+      pbrt::RayStatePtr current_ray(new pbrt::RayState());
+      current_ray->Deserialize(buffer, data_len);
+      delete [] buffer;
+      ray_queue.push(move(current_ray));
     }
   }
-  return 0;
 
   /* (4) tracing rays to completing */
   vector<pbrt::Sample> samples;
