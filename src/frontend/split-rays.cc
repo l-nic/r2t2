@@ -103,9 +103,7 @@ int accept_client_connections(uint32_t num_connections) {
 }
 
 void send_to_client(uint32_t current_treelet, char* ray_buffer, uint64_t actual_len) {
-  printf("writing to client %d\n", current_treelet);
   _send_mutex.at(current_treelet).lock();
-  printf("got lock %d\n", current_treelet);
   int write_fd = _treelet_handles[current_treelet];
   ssize_t written_len = write(write_fd, ray_buffer, actual_len);
   if (written_len <= 0) {
@@ -118,7 +116,6 @@ void handle_client_reads(uint32_t treelet) {
   int treelet_fd = _treelet_handles[treelet];
   while (true) {
     // Wait for messages to arrive from a client
-    printf("Reading from client %d\n", treelet);
     uint32_t header_buf[3];
     ssize_t total_len = 0;
     ssize_t actual_len = 0;
@@ -130,7 +127,6 @@ void handle_client_reads(uint32_t treelet) {
             return;
         }
     } while (total_len < 3*sizeof(uint32_t));
-    printf("Got treelet dest %d id %d and message size %d\n", header_buf[0], header_buf[1], header_buf[2]);
     if (header_buf[0] > _num_treelets) {
       fprintf(stderr, "Invalid treelet id %d\n", header_buf[0]);
       return;
@@ -142,7 +138,6 @@ void handle_client_reads(uint32_t treelet) {
     do {
         actual_len = read(treelet_fd, buffer + 2*sizeof(uint32_t) + total_len, header_buf[2] - total_len);
         total_len += actual_len;
-        printf("Read %d bytes\n", actual_len);
         if (actual_len <= 0) {
             fprintf(stderr, "Read error for treelet %d\n", treelet);
             return;
@@ -214,6 +209,13 @@ int main( int argc, char* argv[] )
       _send_mutex[i].unlock();
       all_threads.emplace_back(move(thread(handle_client_reads, i)));
     }
+  int total_ray_count = 0;
+  for (const auto pixel : scene_base.sampleBounds) {
+    for (int sample = 0; sample < scene_base.samplesPerPixel; sample++) {
+      total_ray_count++;
+    }
+  }
+  printf("Total ray count is %d\n", total_ray_count);
 
   for ( const auto pixel : scene_base.sampleBounds ) {
     for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
@@ -228,8 +230,7 @@ int main( int argc, char* argv[] )
       uint32_t ray_msg_load_id = RAY_MSG_LOAD_ID;
       memcpy(ray_buffer, &ray_msg_load_id, sizeof(uint32_t));
       uint64_t actual_len = current_ray->Serialize(ray_buffer + sizeof(uint32_t));
-      printf("sending initial ray\n");
-      usleep(10000);
+      usleep(1000);
       send_to_client(current_ray->CurrentTreelet(), ray_buffer, actual_len + sizeof(uint32_t));
       delete [] ray_buffer;
     }

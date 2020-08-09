@@ -73,7 +73,6 @@ int start_client_socket(const char* ip_address, uint16_t port) {
 }
 
 int read_from_generator(char* buffer, uint32_t* data_len) {
-    printf("Reading from generator\n");
     uint32_t header_buf[2];
     ssize_t total_len = 0;
     ssize_t actual_len = 0;
@@ -84,7 +83,6 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
             return -1;
         }
     } while (total_len < 2*sizeof(uint32_t));
-    printf("Got id %d and message size %d\n", header_buf[0], header_buf[1]);
     if (header_buf[0] != RAY_MSG_LOAD_ID && header_buf[0] != RAY_MSG_ID) {
         return -1;
     }
@@ -93,7 +91,6 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
     do {
         actual_len = read(_ray_generator_fd, buffer + total_len, header_buf[1] - total_len);
         total_len += actual_len;
-        printf("Read %d bytes\n", actual_len);
         if (actual_len <= 0) {
             return -1;
         }
@@ -113,14 +110,12 @@ void send_ray(pbrt::RayStatePtr ray) {
     uint64_t packed_ray_size = pbrt::RayState::MaxPackedSize + 3*sizeof(uint32_t);
     char* ray_buffer = new char[packed_ray_size];
     uint32_t ray_treelet_dest = ray->CurrentTreelet();
-    printf("sending to treelet %d\n", ray_treelet_dest);
     uint32_t ray_msg_load_id = RAY_MSG_ID;
     memcpy(ray_buffer, &ray_treelet_dest, sizeof(uint32_t));
     memcpy(ray_buffer + sizeof(uint32_t), &ray_msg_load_id, sizeof(uint32_t));
     uint64_t actual_len = ray->Serialize(ray_buffer + 2*sizeof(uint32_t));
     write_to_generator(ray_buffer, actual_len + 2*sizeof(uint32_t));
     delete [] ray_buffer;
-    printf("Sent to treelet\n");
 }
 
 int main( int argc, char* argv[] )
@@ -178,6 +173,7 @@ int main( int argc, char* argv[] )
   vector<pbrt::Sample> samples;
 
   pbrt::MemoryArena arena;
+  int ray_count = 0;
 
   while (true) {
     pbrt::RayStatePtr ray(new pbrt::RayState());
@@ -187,24 +183,27 @@ int main( int argc, char* argv[] )
     // } else {
         char* buffer = new char[pbrt::RayState::MaxPackedSize];
         uint32_t data_len;
-        printf("Reading from generator\n");
         int read_retval = read_from_generator(buffer, &data_len);
         if (read_retval < 0) {
         return -1;
         }
         ray->Deserialize(buffer, data_len);
         delete [] buffer;
+        if (ray_count % 1000 == 0) {
+            printf("Received ray %d\n", ray_count);
+        }
+        ray_count++;
    // }
 
-    for (int i = 0; i < ray->toVisitHead; i++) {
-      if (i == 0 && ray->toVisit[i].treelet == 0 && ray->toVisit[i].node == 0 && ray->toVisit[i].primitive == 0) {
-        continue;
-      }
-      if (ray->toVisit[i].node == 0) {
-        continue;
-      }
-      printf("index %d has treelet id %d node id %d primitive %d\n", i, ray->toVisit[i].treelet, ray->toVisit[i].node, ray->toVisit[i].primitive);
-    }
+    // for (int i = 0; i < ray->toVisitHead; i++) {
+    //   if (i == 0 && ray->toVisit[i].treelet == 0 && ray->toVisit[i].node == 0 && ray->toVisit[i].primitive == 0) {
+    //     continue;
+    //   }
+    //   if (ray->toVisit[i].node == 0) {
+    //     continue;
+    //   }
+    //   printf("index %d has treelet id %d node id %d primitive %d\n", i, ray->toVisit[i].treelet, ray->toVisit[i].node, ray->toVisit[i].primitive);
+    // }
 
     auto& treelet = treelets[ray->CurrentTreelet()];
 
