@@ -17,6 +17,7 @@
 #include <pbrt/core/geometry.h>
 #include <pbrt/main.h>
 #include <pbrt/raystate.h>
+#include "messages/serialization.hh"
 
 #define UNUSED(expr) do { (void)(expr); } while (0)
 
@@ -225,15 +226,40 @@ int main( int argc, char* argv[] )
 
   // Send the raw saved protobuf data to the clients over the network.
   for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
+    printf("Sending treelet data to treelet %d\n", i);
+    _send_mutex[i].lock(); // This needs to be here so that the lock map is initialized before we do anything.
+    _send_mutex[i].unlock();
     // TODO: This is definitely way too many copies.
     string treelet_file_name = scene_path + "/T" + to_string(i);
-    ifstream treelet_file_data(treelet_file_name, ios::binary);
-    ostringstream treelet_ostream;
-    treelet_ostream << treelet_file_data.rdbuf();
-    string treelet_string = treelet_ostream.str();
-    char* to_send = new char[treelet_string.length()];
-    memcpy(to_send, treelet_string.c_str(), treelet_string.length()); // We don't copy the terminating null character at the end of c_str's return string.
-    send_to_client(i, to_send, treelet_string.length());
+    char* buffer = nullptr;
+    uint64_t size = 0;
+    pbrt::scene::SerializeTreeletToBuffer(treelet_file_name, &buffer, &size);
+    //ifstream treelet_file_data(treelet_file_name, ios::binary);
+    // r2t2::protobuf::RecordReader treelet_reader(treelet_file_name);
+    // uint32_t num_triangle_meshes = 0;
+    // treelet_reader.read(&num_triangle_meshes);
+
+
+    // uint32_t next_size = 0;
+    // treelet_file_data.read((char*)&next_size, sizeof(uint32_t));
+    // uint32_t num_triangle_meshes = 0;
+    // buffer_stream.read((char*)&num_triangle_meshes, sizeof(uint32_t));
+
+    // treelet_ostream << treelet_file_data.rdbuf();
+    // string treelet_string = treelet_ostream.str();
+    char* to_send = new char[size + 2*sizeof(uint32_t)];
+    uint32_t msg_type = TREELET_MSG_LOAD_ID;
+    uint32_t msg_size = size;
+    memcpy(to_send, &msg_type, sizeof(uint32_t));
+    memcpy(to_send + sizeof(uint32_t), &msg_size, sizeof(uint32_t));
+    memcpy(to_send + 2*sizeof(uint32_t), buffer, size); // We don't copy the terminating null character at the end of c_str's return string.
+    //int num_4byte_words = treelet_string.length() / 4;
+    // Looks like the data record stores the size of each object immediately beforehand.
+    for (int j = 0; j < 10; j++) {
+      char* current_offset = to_send + 2*sizeof(uint32_t) + j*sizeof(uint32_t);
+      printf("%#x\n", *(uint32_t*)current_offset);
+    }
+    send_to_client(i, to_send, size + 2*sizeof(uint32_t));
   }
 
 
@@ -244,8 +270,6 @@ int main( int argc, char* argv[] )
 
     vector<thread> all_threads;
     for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
-      _send_mutex[i].lock();
-      _send_mutex[i].unlock();
       all_threads.emplace_back(move(thread(handle_client_reads, i)));
     }
   int total_ray_count = 0;

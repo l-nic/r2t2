@@ -138,6 +138,7 @@ void send_sample(pbrt::Sample sample) {
 // If we could use the preprocessor to define several loops and then choose between those, that would actually be super helpful.
 // Or we could just make up a fixed number for now.
 int read_treelet(char** buffer, uint64_t* size) {
+    printf("Reading treelet data\n");
     uint32_t header_buf[2];
     ssize_t total_len = 0;
     ssize_t actual_len = 0;
@@ -162,6 +163,7 @@ int read_treelet(char** buffer, uint64_t* size) {
         }
     } while (total_len < header_buf[1]);
     *size = total_len;
+    printf("Read all treelet data with size %d\n", *size);
     return 0;
 }
 
@@ -202,6 +204,10 @@ int main( int argc, char* argv[] )
       fprintf(stderr, "Unable to read treelet\n");
       return -1;
   }
+    for (int j = 0; j < 10; j++) {
+      char* current_offset = buffer + j*sizeof(uint32_t);
+      printf("%#x\n", *(uint32_t*)current_offset);
+    }
   shared_ptr<pbrt::CloudBVH> treelet = pbrt::scene::LoadNetworkTreelet(_treelet_id, buffer, size);
   delete [] buffer;
   //}
