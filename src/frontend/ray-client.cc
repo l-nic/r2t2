@@ -38,13 +38,14 @@ using namespace std;
 
 int _ray_generator_fd = -1;
 uint32_t _treelet_id = -1;
+uint32_t _num_treelets = -1;
 
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
 
 void usage( char* argv0 )
 {
-  cerr << argv0 << " SCENE-PATH [SAMPLES-PER-PIXEL] TREELET_ID" << endl;
+  cerr << argv0 << " SCENE-PATH [SAMPLES-PER-PIXEL] TREELET_ID NUM_TREELETS" << endl;
 }
 
 int start_client_socket(const char* ip_address, uint16_t port) {
@@ -118,13 +119,26 @@ void send_ray(pbrt::RayStatePtr ray) {
     delete [] ray_buffer;
 }
 
+void send_sample(pbrt::Sample sample) {
+    uint64_t packed_sample_size = sample.Size() + 3*sizeof(uint32_t);
+    char* sample_buffer = new char[packed_sample_size];
+    uint32_t msg_dest = _num_treelets;
+    uint32_t msg_id = SAMPLE_MSG_ID;
+    uint32_t msg_size = sample.Size();
+    memcpy(sample_buffer, &msg_dest, sizeof(uint32_t));
+    memcpy(sample_buffer + sizeof(uint32_t), &msg_id, sizeof(uint32_t));
+    uint64_t actual_len = sample.Serialize(sample_buffer + 2*sizeof(uint32_t));
+    write_to_generator(sample_buffer, actual_len + 2*sizeof(uint32_t));
+    delete [] sample_buffer;
+}
+
 int main( int argc, char* argv[] )
 {
   if ( argc <= 0 ) {
     abort();
   }
 
-  if ( argc < 3 ) {
+  if ( argc < 4 ) {
     usage( argv[0] );
     return EXIT_FAILURE;
   }
@@ -133,6 +147,7 @@ int main( int argc, char* argv[] )
   const string scene_path { argv[1] };
   const size_t samples_per_pixel = ( argc > 2 ) ? stoull( argv[2] ) : 0;
   _treelet_id = stoull(argv[3]);
+  _num_treelets = stoull(argv[4]);
 
   /* (1) loading the scene */
   auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
@@ -170,7 +185,7 @@ int main( int argc, char* argv[] )
 // }
 
   /* (4) tracing rays to completing */
-  vector<pbrt::Sample> samples;
+//  vector<pbrt::Sample> samples;
 
   pbrt::MemoryArena arena;
   int ray_count = 0;
@@ -220,7 +235,7 @@ int main( int argc, char* argv[] )
       if ( new_ray->IsShadowRay() ) {
         if ( hit or empty_visit ) {
           new_ray->Ld = hit ? 0.f : new_ray->Ld;
-          samples.emplace_back( *new_ray ); // this ray is done
+          send_sample( *new_ray ); // this ray is done
         } else {
           send_ray(move(new_ray)); // back to the ray queue
         }
@@ -228,7 +243,7 @@ int main( int argc, char* argv[] )
           send_ray(move(new_ray)); // back to the ray queue
       } else if ( empty_visit ) {
         new_ray->Ld = 0.f;
-        samples.emplace_back( *new_ray ); // this ray is done
+        send_sample( *new_ray ); // this ray is done
       }
     } else if ( ray->HasHit() ) {
       auto [bounce_ray, shadow_ray]
@@ -251,8 +266,8 @@ int main( int argc, char* argv[] )
   }
 
   /* (5) accumulating the samples and producing the final output */
-  pbrt::graphics::AccumulateImage( scene_base.camera, samples );
-  pbrt::graphics::WriteImage( scene_base.camera );
+  //pbrt::graphics::AccumulateImage( scene_base.camera, samples );
+  //pbrt::graphics::WriteImage( scene_base.camera );
 
   return EXIT_SUCCESS;
 }

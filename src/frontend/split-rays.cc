@@ -34,7 +34,11 @@ int _server_fd = -1;
 map<uint32_t, int> _treelet_handles;
 uint32_t _num_treelets = 0;
 map<uint32_t, mutex> _send_mutex;
+vector<pbrt::Sample> _all_samples;
+mutex _sample_lock;
 bool _hold_switch_threads = true; // TODO: This should really be a condition variable
+uint32_t _sample_count = 0;
+pbrt::scene::Base scene_base;
 
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
@@ -151,7 +155,21 @@ void handle_client_reads(uint32_t treelet) {
     } else if (header_buf[0] == _num_treelets) {
       // Switch should process this one. Right now the switch only understands samples.
       if (header_buf[1] == SAMPLE_MSG_ID) {
-        printf("Switch received sample message\n");
+        pbrt::Sample sample;
+        sample.Deserialize(buffer + 2*sizeof(uint32_t), header_buf[2]);
+        _sample_lock.lock();
+        _all_samples.emplace_back(move(sample));
+        // if (total_sample_count % 100 == 0) {
+        //   pbrt::graphics::AccumulateImage( scene_base.camera, _all_samples );
+        //   pbrt::graphics::WriteImage( scene_base.camera );
+        // }
+        printf("Sample count %d\n", _sample_count);
+        if (_sample_count % 10000 == 0) {
+          pbrt::graphics::AccumulateImage( scene_base.camera, _all_samples );
+          pbrt::graphics::WriteImage( scene_base.camera );   
+        }
+        _sample_count++;
+        _sample_lock.unlock();
       } else {
         fprintf(stderr, "Switch received unknown message %d\n", header_buf[1]);
         return;
@@ -180,7 +198,7 @@ int main( int argc, char* argv[] )
   const size_t samples_per_pixel = ( argc > 2 ) ? stoull( argv[2] ) : 0;
 
   /* (1) loading the scene */
-  auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
+  scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
 
   /* (2) loading all the treelets */
   vector<shared_ptr<pbrt::CloudBVH>> treelets;
@@ -216,6 +234,7 @@ int main( int argc, char* argv[] )
     }
   }
   printf("Total ray count is %d\n", total_ray_count);
+  total_ray_count = 0;
 
   for ( const auto pixel : scene_base.sampleBounds ) {
     for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
@@ -233,6 +252,7 @@ int main( int argc, char* argv[] )
       usleep(1000);
       send_to_client(current_ray->CurrentTreelet(), ray_buffer, actual_len + sizeof(uint32_t));
       delete [] ray_buffer;
+      total_ray_count++;
     }
   }
   printf("sent all samples\n");
