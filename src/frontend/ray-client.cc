@@ -156,7 +156,7 @@ int main( int argc, char* argv[] )
   vector<shared_ptr<pbrt::CloudBVH>> treelets;
 
   for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
-    treelets.push_back( pbrt::scene::LoadTreelet( scene_path, i ) );
+    treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
   }
 
   _ray_generator_fd = start_client_socket(SERVER_IP_ADDR, SERVER_PORT);
