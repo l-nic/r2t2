@@ -20,10 +20,19 @@
 #define ERROR_MSG_ID 0 // Error condition, should never occur. Set to zero since this is likely in an improperly configured message.
 #define RAY_MSG_LOAD_ID 1 // Switches to initiators
 #define RAY_MSG_ID 2 // Regular rays in transit
+#define SAMPLE_MSG_ID 3 // Samples returning back to the root
+
+// Message format should be: Treelet dest (or root), message type, message size, message
+// Messages that are read don't need to read out the dest field.
+// Initial bringup messages will be different, and will just consist of the treelet source.
+// All writes from treelets go to the root
+// All reads from treelets come from the root, and are at the beginning of the loop instead of the ray_queue dequeue
+// The root will start off by writing out initial rays, and will then enter an event loop where it receives all incoming messages,
+// processes them if they're intended for it, or forwards them back out to the actual destination if they're intended for another treelet.
+
 
 #define SERVER_IP_ADDR "127.0.0.1"
 #define SERVER_PORT 5000
-
 
 using namespace std;
 
@@ -76,7 +85,7 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
         }
     } while (total_len < 2*sizeof(uint32_t));
     printf("Got id %d and message size %d\n", header_buf[0], header_buf[1]);
-    if (header_buf[0] != RAY_MSG_LOAD_ID) {
+    if (header_buf[0] != RAY_MSG_LOAD_ID && header_buf[0] != RAY_MSG_ID) {
         return -1;
     }
 
@@ -91,6 +100,27 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
     } while (total_len < header_buf[1]);
     *data_len = total_len;
     return 0;
+}
+
+void write_to_generator(char* buffer, uint32_t data_len) {
+    ssize_t written_len = write(_ray_generator_fd, buffer, data_len);
+    if (written_len <= 0) {
+        cerr << "Error writing to treelet" << endl;
+    }
+}
+
+void send_ray(pbrt::RayStatePtr ray) {
+    uint64_t packed_ray_size = pbrt::RayState::MaxPackedSize + 3*sizeof(uint32_t);
+    char* ray_buffer = new char[packed_ray_size];
+    uint32_t ray_treelet_dest = ray->CurrentTreelet();
+    printf("sending to treelet %d\n", ray_treelet_dest);
+    uint32_t ray_msg_load_id = RAY_MSG_ID;
+    memcpy(ray_buffer, &ray_treelet_dest, sizeof(uint32_t));
+    memcpy(ray_buffer + sizeof(uint32_t), &ray_msg_load_id, sizeof(uint32_t));
+    uint64_t actual_len = ray->Serialize(ray_buffer + 2*sizeof(uint32_t));
+    write_to_generator(ray_buffer, actual_len + 2*sizeof(uint32_t));
+    delete [] ray_buffer;
+    printf("Sent to treelet\n");
 }
 
 int main( int argc, char* argv[] )
@@ -125,31 +155,47 @@ int main( int argc, char* argv[] )
   }
 
   /* (3) generating all the initial rays */
-  queue<pbrt::RayStatePtr> ray_queue;
+//  queue<pbrt::RayStatePtr> ray_queue;
 
-  for ( const auto pixel : scene_base.sampleBounds ) {
-    for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
-      char* buffer = new char[pbrt::RayState::MaxPackedSize];
-      uint32_t data_len;
-      int read_retval = read_from_generator(buffer, &data_len);
-      if (read_retval < 0) {
-          return -1;
-      }
-      pbrt::RayStatePtr current_ray(new pbrt::RayState());
-      current_ray->Deserialize(buffer, data_len);
-      delete [] buffer;
-      ray_queue.push(move(current_ray));
-    }
-  }
+//     if (_treelet_id == 0) {
+//   for ( const auto pixel : scene_base.sampleBounds ) {
+//     for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
+//       char* buffer = new char[pbrt::RayState::MaxPackedSize];
+//       uint32_t data_len;
+//       int read_retval = read_from_generator(buffer, &data_len);
+//       if (read_retval < 0) {
+//           return -1;
+//       }
+//       pbrt::RayStatePtr current_ray(new pbrt::RayState());
+//       current_ray->Deserialize(buffer, data_len);
+//       delete [] buffer;
+//       ray_queue.push(move(current_ray));
+//     }
+//   }
+// }
 
   /* (4) tracing rays to completing */
   vector<pbrt::Sample> samples;
 
   pbrt::MemoryArena arena;
 
-  while ( not ray_queue.empty() ) {
-    pbrt::RayStatePtr ray = move( ray_queue.front() );
-    ray_queue.pop();
+  while (true) {
+    pbrt::RayStatePtr ray(new pbrt::RayState());
+    // if (!ray_queue.empty()) {
+    //     ray = move(ray_queue.front());
+    //     ray_queue.pop();
+    // } else {
+        char* buffer = new char[pbrt::RayState::MaxPackedSize];
+        uint32_t data_len;
+        printf("Reading from generator\n");
+        int read_retval = read_from_generator(buffer, &data_len);
+        if (read_retval < 0) {
+        return -1;
+        }
+        ray->Deserialize(buffer, data_len);
+        delete [] buffer;
+   // }
+
     for (int i = 0; i < ray->toVisitHead; i++) {
       if (i == 0 && ray->toVisit[i].treelet == 0 && ray->toVisit[i].node == 0 && ray->toVisit[i].primitive == 0) {
         continue;
@@ -177,10 +223,10 @@ int main( int argc, char* argv[] )
           new_ray->Ld = hit ? 0.f : new_ray->Ld;
           samples.emplace_back( *new_ray ); // this ray is done
         } else {
-          ray_queue.push( move( new_ray ) ); // back to the ray queue
+          send_ray(move(new_ray)); // back to the ray queue
         }
       } else if ( not empty_visit or hit ) {
-        ray_queue.push( move( new_ray ) ); // back to the ray queue
+          send_ray(move(new_ray)); // back to the ray queue
       } else if ( empty_visit ) {
         new_ray->Ld = 0.f;
         samples.emplace_back( *new_ray ); // this ray is done
@@ -196,11 +242,11 @@ int main( int argc, char* argv[] )
                                     arena );
 
       if ( bounce_ray != nullptr ) {
-        ray_queue.push( move( bounce_ray ) ); // back to the ray queue
+        send_ray( move( bounce_ray ) ); // back to the ray queue
       }
 
       if ( shadow_ray != nullptr ) {
-        ray_queue.push( move( shadow_ray ) ); // back to the ray queue
+        send_ray( move( shadow_ray ) ); // back to the ray queue
       }
     }
   }

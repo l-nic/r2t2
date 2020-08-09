@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <map>
+#include <thread>
+#include <mutex>
 
 #include <pbrt/accelerators/cloudbvh.h>
 #include <pbrt/core/geometry.h>
@@ -20,6 +22,7 @@
 #define ERROR_MSG_ID 0 // Error condition, should never occur. Set to zero since this is likely in an improperly configured message.
 #define RAY_MSG_LOAD_ID 1 // Switches to initiators
 #define RAY_MSG_ID 2 // Regular rays in transit
+#define SAMPLE_MSG_ID 3 // Samples returning back to the root
 
 #define SERVER_PORT 5000
 const int CONN_BACKLOG = 32;
@@ -29,6 +32,9 @@ using namespace std;
 
 int _server_fd = -1;
 map<uint32_t, int> _treelet_handles;
+uint32_t _num_treelets = 0;
+map<uint32_t, mutex> _send_mutex;
+bool _hold_switch_threads = true; // TODO: This should really be a condition variable
 
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
@@ -97,10 +103,69 @@ int accept_client_connections(uint32_t num_connections) {
 }
 
 void send_to_client(uint32_t current_treelet, char* ray_buffer, uint64_t actual_len) {
+  printf("writing to client %d\n", current_treelet);
+  _send_mutex.at(current_treelet).lock();
+  printf("got lock %d\n", current_treelet);
   int write_fd = _treelet_handles[current_treelet];
   ssize_t written_len = write(write_fd, ray_buffer, actual_len);
   if (written_len <= 0) {
     cerr << "Error writing to treelet " << current_treelet << endl;
+  }
+  _send_mutex.at(current_treelet).unlock();
+}
+
+void handle_client_reads(uint32_t treelet) {
+  int treelet_fd = _treelet_handles[treelet];
+  while (true) {
+    // Wait for messages to arrive from a client
+    printf("Reading from client %d\n", treelet);
+    uint32_t header_buf[3];
+    ssize_t total_len = 0;
+    ssize_t actual_len = 0;
+    do {
+        actual_len = read(treelet_fd, (char*)&header_buf + total_len, 3*sizeof(uint32_t) - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            fprintf(stderr, "Read error for treelet %d\n", treelet);
+            return;
+        }
+    } while (total_len < 3*sizeof(uint32_t));
+    printf("Got treelet dest %d id %d and message size %d\n", header_buf[0], header_buf[1], header_buf[2]);
+    if (header_buf[0] > _num_treelets) {
+      fprintf(stderr, "Invalid treelet id %d\n", header_buf[0]);
+      return;
+    }
+    char* buffer = new char[header_buf[2] + 2*sizeof(uint32_t)];
+    memcpy(buffer, &header_buf[1], sizeof(uint32_t));
+    memcpy(buffer + sizeof(uint32_t), &header_buf[2], sizeof(uint32_t));
+    total_len = 0;
+    do {
+        actual_len = read(treelet_fd, buffer + 2*sizeof(uint32_t) + total_len, header_buf[2] - total_len);
+        total_len += actual_len;
+        printf("Read %d bytes\n", actual_len);
+        if (actual_len <= 0) {
+            fprintf(stderr, "Read error for treelet %d\n", treelet);
+            return;
+        }
+    } while (total_len < header_buf[2]);
+    uint32_t data_len = total_len;
+
+    if (header_buf[0] < _num_treelets) {
+      // Forward to a treelet
+      send_to_client(header_buf[0], buffer, header_buf[2] + 2*sizeof(uint32_t));
+    } else if (header_buf[0] == _num_treelets) {
+      // Switch should process this one. Right now the switch only understands samples.
+      if (header_buf[1] == SAMPLE_MSG_ID) {
+        printf("Switch received sample message\n");
+      } else {
+        fprintf(stderr, "Switch received unknown message %d\n", header_buf[1]);
+        return;
+      }
+    } else {
+      fprintf(stderr, "Invalid destination selected.\n");
+      return;
+    }
+    delete [] buffer;
   }
 }
 
@@ -141,6 +206,15 @@ int main( int argc, char* argv[] )
   /* (3) generating all the initial rays */
   queue<pbrt::RayStatePtr> ray_queue;
 
+    _num_treelets = scene_base.GetTreeletCount();
+
+    vector<thread> all_threads;
+    for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
+      _send_mutex[i].lock();
+      _send_mutex[i].unlock();
+      all_threads.emplace_back(move(thread(handle_client_reads, i)));
+    }
+
   for ( const auto pixel : scene_base.sampleBounds ) {
     for ( int sample = 0; sample < scene_base.samplesPerPixel; sample++ ) {
       pbrt::RayStatePtr current_ray = pbrt::graphics::GenerateCameraRay( scene_base.camera,
@@ -154,10 +228,21 @@ int main( int argc, char* argv[] )
       uint32_t ray_msg_load_id = RAY_MSG_LOAD_ID;
       memcpy(ray_buffer, &ray_msg_load_id, sizeof(uint32_t));
       uint64_t actual_len = current_ray->Serialize(ray_buffer + sizeof(uint32_t));
+      printf("sending initial ray\n");
+      usleep(10000);
       send_to_client(current_ray->CurrentTreelet(), ray_buffer, actual_len + sizeof(uint32_t));
       delete [] ray_buffer;
     }
   }
+  printf("sent all samples\n");
+  _hold_switch_threads = false;
+
+    for (auto& t : all_threads) {
+      t.join();
+    }
+  
+
+
   return 0;
 
   /* (4) tracing rays to completing */
