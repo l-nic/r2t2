@@ -11,6 +11,7 @@
 #include <map>
 #include <thread>
 #include <mutex>
+#include <fstream>
 
 #include <pbrt/accelerators/cloudbvh.h>
 #include <pbrt/core/geometry.h>
@@ -110,10 +111,15 @@ int accept_client_connections(uint32_t num_connections) {
 void send_to_client(uint32_t current_treelet, char* ray_buffer, uint64_t actual_len) {
   _send_mutex.at(current_treelet).lock();
   int write_fd = _treelet_handles[current_treelet];
-  ssize_t written_len = write(write_fd, ray_buffer, actual_len);
-  if (written_len <= 0) {
-    cerr << "Error writing to treelet " << current_treelet << endl;
-  }
+  ssize_t total_len = 0;
+  do {
+    ssize_t written_len = write(write_fd, ray_buffer + total_len, actual_len - total_len);
+    total_len += written_len;
+    if (written_len <= 0) {
+      cerr << "Error writing to treelet " << current_treelet << endl;
+      return;
+    }
+  } while (total_len < actual_len);
   _send_mutex.at(current_treelet).unlock();
 }
 
@@ -216,6 +222,20 @@ int main( int argc, char* argv[] )
   if (client_connections_retval < 0) {
     return -1;
   }
+
+  // Send the raw saved protobuf data to the clients over the network.
+  for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
+    // TODO: This is definitely way too many copies.
+    string treelet_file_name = scene_path + "/T" + to_string(i);
+    ifstream treelet_file_data(treelet_file_name, ios::binary);
+    ostringstream treelet_ostream;
+    treelet_ostream << treelet_file_data.rdbuf();
+    string treelet_string = treelet_ostream.str();
+    char* to_send = new char[treelet_string.length()];
+    memcpy(to_send, treelet_string.c_str(), treelet_string.length()); // We don't copy the terminating null character at the end of c_str's return string.
+    send_to_client(i, to_send, treelet_string.length());
+  }
+
 
   /* (3) generating all the initial rays */
   queue<pbrt::RayStatePtr> ray_queue;
