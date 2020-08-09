@@ -21,6 +21,7 @@
 #define RAY_MSG_LOAD_ID 1 // Switches to initiators
 #define RAY_MSG_ID 2 // Regular rays in transit
 #define SAMPLE_MSG_ID 3 // Samples returning back to the root
+#define TREELET_MSG_LOAD_ID 4 // Treelets being loaded from the switch.
 
 // Message format should be: Treelet dest (or root), message type, message size, message
 // Messages that are read don't need to read out the dest field.
@@ -132,8 +133,36 @@ void send_sample(pbrt::Sample sample) {
     delete [] sample_buffer;
 }
 
+// TODO: This should be unified with read_from_generator. It's basically the same thing, but it allocates the buffer as well,
+// and it checks for a different message type id. We'll probably want to figure out some sort of partial loop unrolling for the nanopu.
+// If we could use the preprocessor to define several loops and then choose between those, that would actually be super helpful.
+// Or we could just make up a fixed number for now.
 int read_treelet(char** buffer, uint64_t* size) {
-    return -1;
+    uint32_t header_buf[2];
+    ssize_t total_len = 0;
+    ssize_t actual_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, (char*)&header_buf + total_len, 2*sizeof(uint32_t) - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < 2*sizeof(uint32_t));
+    if (header_buf[0] != TREELET_MSG_LOAD_ID) {
+        return -1;
+    }
+    *buffer = new char[header_buf[1]];
+
+    total_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, *buffer + total_len, header_buf[1] - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < header_buf[1]);
+    *size = total_len;
+    return 0;
 }
 
 int main( int argc, char* argv[] )
@@ -174,6 +203,7 @@ int main( int argc, char* argv[] )
       return -1;
   }
   shared_ptr<pbrt::CloudBVH> treelet = pbrt::scene::LoadNetworkTreelet(_treelet_id, buffer, size);
+  delete [] buffer;
   //}
 
   /* (3) generating all the initial rays */

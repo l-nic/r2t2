@@ -23,6 +23,7 @@
 #define RAY_MSG_LOAD_ID 1 // Switches to initiators
 #define RAY_MSG_ID 2 // Regular rays in transit
 #define SAMPLE_MSG_ID 3 // Samples returning back to the root
+#define TREELET_MSG_LOAD_ID 4 // Treelets being loaded from the switch.
 
 #define SERVER_PORT 5000
 const int CONN_BACKLOG = 32;
