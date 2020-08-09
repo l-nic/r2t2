@@ -132,6 +132,10 @@ void send_sample(pbrt::Sample sample) {
     delete [] sample_buffer;
 }
 
+int read_treelet(char** buffer, uint64_t* size) {
+    return -1;
+}
+
 int main( int argc, char* argv[] )
 {
   if ( argc <= 0 ) {
@@ -153,16 +157,24 @@ int main( int argc, char* argv[] )
   auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
 
   /* (2) loading all the treelets */
-  vector<shared_ptr<pbrt::CloudBVH>> treelets;
-
-  for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
-    treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
-  }
+  //vector<shared_ptr<pbrt::CloudBVH>> treelets;
 
   _ray_generator_fd = start_client_socket(SERVER_IP_ADDR, SERVER_PORT);
   if (_ray_generator_fd < 0) {
       return -1;
   }
+
+  //for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
+  //treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
+  char* buffer = nullptr;
+  uint64_t size = 0;
+  int treelet_retval = read_treelet(&buffer, &size);
+  if (treelet_retval < 0) {
+      fprintf(stderr, "Unable to read treelet\n");
+      return -1;
+  }
+  shared_ptr<pbrt::CloudBVH> treelet = pbrt::scene::LoadNetworkTreelet(_treelet_id, buffer, size);
+  //}
 
   /* (3) generating all the initial rays */
 //  queue<pbrt::RayStatePtr> ray_queue;
@@ -220,7 +232,10 @@ int main( int argc, char* argv[] )
     //   printf("index %d has treelet id %d node id %d primitive %d\n", i, ray->toVisit[i].treelet, ray->toVisit[i].node, ray->toVisit[i].primitive);
     // }
 
-    auto& treelet = treelets[ray->CurrentTreelet()];
+    if (ray->CurrentTreelet() != _treelet_id) {
+        fprintf(stderr, "Treelet id %d not the same as own treelet id %d\n", ray->CurrentTreelet(), _treelet_id);
+        return -1;
+    }
 
     /* This is the ray tracing core logic; calling one of TraceRay or ShadeRay
     functions, based on the state of the `ray`, and putting the result back
