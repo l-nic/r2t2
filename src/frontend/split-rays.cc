@@ -12,6 +12,9 @@
 #include <thread>
 #include <mutex>
 #include <fstream>
+#include <dirent.h>
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <pbrt/accelerators/cloudbvh.h>
 #include <pbrt/core/geometry.h>
@@ -190,6 +193,27 @@ void handle_client_reads(uint32_t treelet) {
   }
 }
 
+int get_treelet_mats(const string& scene_path, vector<string>& mat_filenames) {
+  // for (const auto& entry : fs::directory_iterator(scene_path)) {
+  //   all_mat_names.push_back(entry.path());
+  // }
+  DIR *dir;
+  struct dirent *ent;
+  if ((dir = opendir(scene_path.c_str())) != NULL) {
+    while ((ent = readdir(dir)) != NULL) {
+      string entry(ent->d_name);
+      if (entry.find("MAT") == 0) { // TODO: This is probably not quite right
+        mat_filenames.push_back(scene_path + string("/") + entry);
+      }
+    }
+    closedir(dir);
+  } else {
+    printf("Unable to open treelet directory\n");
+    return -1;
+  }
+  return 0;
+}
+
 int main( int argc, char* argv[] )
 {
   if ( argc <= 0 ) {
@@ -224,6 +248,12 @@ int main( int argc, char* argv[] )
     return -1;
   }
 
+  vector<string> mat_filenames;
+  int mat_send_retval = get_treelet_mats(scene_path, mat_filenames);
+  if (mat_send_retval < 0) {
+    return -1;
+  }
+
   // Send the raw saved protobuf data to the clients over the network.
   for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
     printf("Sending treelet data to treelet %d\n", i);
@@ -231,9 +261,10 @@ int main( int argc, char* argv[] )
     _send_mutex[i].unlock();
     // TODO: This is definitely way too many copies.
     string treelet_file_name = scene_path + "/T" + to_string(i);
+    printf("continuing\n");
     char* buffer = nullptr;
     uint64_t size = 0;
-    pbrt::scene::SerializeTreeletToBuffer(treelet_file_name, &buffer, &size);
+    pbrt::scene::SerializeTreeletToBuffer(treelet_file_name, mat_filenames, &buffer, &size);
     //ifstream treelet_file_data(treelet_file_name, ios::binary);
     // r2t2::protobuf::RecordReader treelet_reader(treelet_file_name);
     // uint32_t num_triangle_meshes = 0;
