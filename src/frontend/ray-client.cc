@@ -181,6 +181,7 @@ int read_base(char** buffer, uint64_t* size) {
             return -1;
         }
     } while (total_len < 2*sizeof(uint32_t));
+    printf("message id is %d and size is %d\n", header_buf[0], header_buf[1]);
     if (header_buf[0] != BASE_MSG_LOAD_ID) {
         return -1;
     }
