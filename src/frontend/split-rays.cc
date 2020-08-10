@@ -231,7 +231,9 @@ int main( int argc, char* argv[] )
   const size_t samples_per_pixel = ( argc > 2 ) ? stoull( argv[2] ) : 0;
 
   /* (1) loading the scene */
+  printf("Loading old base\n");
   scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
+  printf("Loaded base\n");
 
   /* (2) loading all the treelets */
   vector<shared_ptr<pbrt::CloudBVH>> treelets;
