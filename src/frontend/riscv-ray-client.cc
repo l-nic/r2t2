@@ -42,6 +42,25 @@ int _ray_generator_fd = -1;
 uint32_t _treelet_id = -1;
 uint32_t _num_treelets = -1;
 
+// CSR modification macros
+#define csr_read(csr)           \
+({                \
+  unsigned long __v;       \
+  __asm__ __volatile__ ("csrr %0, " #csr      \
+            : "=r" (__v) :      \
+            : "memory");      \
+  __v;              \
+})
+
+#define csr_write(csr, val)         \
+({                \
+  unsigned long __v = (unsigned long)(val);   \
+  __asm__ __volatile__ ("csrw " #csr ", %0"   \
+            : : "rK" (__v)      \
+            : "memory");      \
+})
+
+
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
 
@@ -73,6 +92,7 @@ int start_client_socket(const char* ip_address, uint16_t port) {
     //     return -1;
     // }
     // return sockfd;
+    return -1;
 }
 
 int read_from_generator(char* buffer, uint32_t* data_len) {
@@ -202,6 +222,7 @@ int read_base(char** buffer, uint64_t* size) {
 
 int main( int argc, char* argv[] )
 {
+  printf("%ld\n", csr_read(0x50));
   if ( argc <= 0 ) {
     abort();
   }
@@ -223,18 +244,21 @@ int main( int argc, char* argv[] )
   /* (2) loading all the treelets */
   //vector<shared_ptr<pbrt::CloudBVH>> treelets;
 
-  _ray_generator_fd = start_client_socket(SERVER_IP_ADDR, SERVER_PORT);
-  if (_ray_generator_fd < 0) {
-      return -1;
-  }
+//   _ray_generator_fd = start_client_socket(SERVER_IP_ADDR, SERVER_PORT);
+//   if (_ray_generator_fd < 0) {
+//       printf("exiting\n");
+//       return -1;
+//   }
 
-  char* base_buffer = nullptr;
-  uint64_t base_size = 0;
-  int base_retval = read_base(&base_buffer, &base_size);
-  if (base_retval < 0) {
-      fprintf(stderr, "Unable to read base\n");
-      return -1;
-  }
+//   char* base_buffer = nullptr;
+//   uint64_t base_size = 0;
+//   int base_retval = read_base(&base_buffer, &base_size);
+//   if (base_retval < 0) {
+//       fprintf(stderr, "Unable to read base\n");
+//       return -1;
+//   }
+  char* base_buffer = new char[1000];
+  uint64_t base_size = 1000;
   pbrt::scene::Base scene_base = pbrt::scene::LoadNetworkBase(base_buffer, base_size, samples_per_pixel);
   delete [] base_buffer;
 
