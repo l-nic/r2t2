@@ -29,6 +29,7 @@ namespace fs = std::filesystem;
 #define RAY_MSG_ID 2 // Regular rays in transit
 #define SAMPLE_MSG_ID 3 // Samples returning back to the root
 #define TREELET_MSG_LOAD_ID 4 // Treelets being loaded from the switch.
+#define BASE_MSG_LOAD_ID 5 // Base data being loaded from the switch.
 
 #define SERVER_PORT 5000
 const int CONN_BACKLOG = 32;
@@ -254,11 +255,27 @@ int main( int argc, char* argv[] )
     return -1;
   }
 
+  char* base_buffer = nullptr;
+  uint64_t base_size = 0;
+  pbrt::scene::SerializeBaseToBuffer(scene_path + "/CAMERA", scene_path + "/LIGHTS", scene_path + "/SAMPLER",
+                                     scene_path + "/SCENE", scene_path + "/MANIFEST", &base_buffer, &base_size);
+  // TODO: This is a giant copy to add what really ammounts to just a few bytes to the front of the buffer.
+  char* base_to_send = new char[base_size + 2*sizeof(uint32_t)];
+  uint32_t msg_type = BASE_MSG_LOAD_ID;
+  uint32_t msg_size = base_size;
+  memcpy(base_to_send, &msg_type, sizeof(uint32_t));
+  memcpy(base_to_send + sizeof(uint32_t), &msg_size, sizeof(uint32_t));
+  memcpy(base_to_send + 2*sizeof(uint32_t), base_buffer, base_size);
+  delete [] base_buffer;
+
   // Send the raw saved protobuf data to the clients over the network.
   for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
     printf("Sending treelet data to treelet %d\n", i);
     _send_mutex[i].lock(); // This needs to be here so that the lock map is initialized before we do anything.
     _send_mutex[i].unlock();
+
+    send_to_client(i, base_to_send, base_size + 2*sizeof(uint32_t));
+
     // TODO: This is definitely way too many copies.
     string treelet_file_name = scene_path + "/T" + to_string(i);
     printf("continuing\n");
@@ -284,6 +301,7 @@ int main( int argc, char* argv[] )
     memcpy(to_send, &msg_type, sizeof(uint32_t));
     memcpy(to_send + sizeof(uint32_t), &msg_size, sizeof(uint32_t));
     memcpy(to_send + 2*sizeof(uint32_t), buffer, size); // We don't copy the terminating null character at the end of c_str's return string.
+    delete [] buffer;
     //int num_4byte_words = treelet_string.length() / 4;
     // Looks like the data record stores the size of each object immediately beforehand.
     for (int j = 0; j < 10; j++) {
@@ -291,7 +309,10 @@ int main( int argc, char* argv[] )
       printf("%#x\n", *(uint32_t*)current_offset);
     }
     send_to_client(i, to_send, size + 2*sizeof(uint32_t));
+    delete [] to_send;
   }
+
+  delete [] base_to_send;
 
 
   /* (3) generating all the initial rays */

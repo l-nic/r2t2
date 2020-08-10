@@ -22,6 +22,7 @@
 #define RAY_MSG_ID 2 // Regular rays in transit
 #define SAMPLE_MSG_ID 3 // Samples returning back to the root
 #define TREELET_MSG_LOAD_ID 4 // Treelets being loaded from the switch.
+#define BASE_MSG_LOAD_ID 5 // Base data being loaded from the switch.
 
 // Message format should be: Treelet dest (or root), message type, message size, message
 // Messages that are read don't need to read out the dest field.
@@ -167,6 +168,37 @@ int read_treelet(char** buffer, uint64_t* size) {
     return 0;
 }
 
+// TODO: Same here. These should all really be combined.
+int read_base(char** buffer, uint64_t* size) {
+    printf("Reading base data\n");
+    uint32_t header_buf[2];
+    ssize_t total_len = 0;
+    ssize_t actual_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, (char*)&header_buf + total_len, 2*sizeof(uint32_t) - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < 2*sizeof(uint32_t));
+    if (header_buf[0] != BASE_MSG_LOAD_ID) {
+        return -1;
+    }
+    *buffer = new char[header_buf[1]];
+
+    total_len = 0;
+    do {
+        actual_len = read(_ray_generator_fd, *buffer + total_len, header_buf[1] - total_len);
+        total_len += actual_len;
+        if (actual_len <= 0) {
+            return -1;
+        }
+    } while (total_len < header_buf[1]);
+    *size = total_len;
+    printf("Read all treelet data with size %d\n", *size);
+    return 0;
+}
+
 int main( int argc, char* argv[] )
 {
   if ( argc <= 0 ) {
@@ -185,7 +217,7 @@ int main( int argc, char* argv[] )
   _num_treelets = stoull(argv[4]);
 
   /* (1) loading the scene */
-  auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
+  // auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
 
   /* (2) loading all the treelets */
   //vector<shared_ptr<pbrt::CloudBVH>> treelets;
@@ -194,6 +226,16 @@ int main( int argc, char* argv[] )
   if (_ray_generator_fd < 0) {
       return -1;
   }
+
+  char* base_buffer = nullptr;
+  uint64_t base_size = 0;
+  int base_retval = read_base(&base_buffer, &base_size);
+  if (base_retval < 0) {
+      fprintf(stderr, "Unable to read base\n");
+      return -1;
+  }
+  pbrt::scene::Base scene_base = pbrt::scene::LoadNetworkBase(base_buffer, base_size, samples_per_pixel);
+  delete [] base_buffer;
 
   //for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
   //treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
