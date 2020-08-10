@@ -17,7 +17,7 @@ find_library ( PTHREAD pthread )
 
 include ( FindOpenSSL )
 
-include ( etc/find_lz4.cmake )
+# include ( etc/find_lz4.cmake )
 
 include_directories ( SYSTEM
   "${CMAKE_CURRENT_LIST_DIR}/lib/pbrt/src/include"
@@ -37,16 +37,16 @@ add_definitions ( -D PBRT_THREAD_LOCAL=thread_local )
 file ( GLOB R2T2_SOURCE
     #src/benchmark/*
     src/common/*
-    src/master/*
+    # src/master/*
     src/messages/*
-    src/net/*
-    src/remote/*
-    src/schedulers/*
-    #src/server/*
-    src/simulator/*
-    src/storage/*
-    src/util/*
-    src/worker/*
+    # src/net/*
+    # src/remote/*
+    # src/schedulers/*
+    # src/server/*
+    # src/simulator/*
+    # src/storage/*
+    # src/util/*
+    # src/worker/*
 )
 
 include_directories ( src )
@@ -67,43 +67,51 @@ set ( ALL_R2T2_LIBS
     Half
     glog
     Ptex_static
-    ${LZ4_LIBRARY}
+    # ${LZ4_LIBRARY}
     ${ZLIB_LIBRARY}
     ${Protobuf_LIBRARIES}
-    ${OPENSSL_LIBRARIES}
+    # ${OPENSSL_LIBRARIES}
 )
+if (NOT CMAKE_CHOOSE_CROSS)
+  add_executable ( r2t2-lambda-master src/frontend/lambda-master.cc )
+  target_link_libraries( r2t2-lambda-master ${ALL_R2T2_LIBS} )
 
-add_executable ( r2t2-lambda-master src/frontend/lambda-master.cc )
-target_link_libraries( r2t2-lambda-master ${ALL_R2T2_LIBS} )
+  set ( WORKER_LINK_FLAGS dl z unwind lzma -static -Wl,-allow-multiple-definition
+                          -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
+                          -s )
 
-set ( WORKER_LINK_FLAGS dl z unwind lzma -static -Wl,-allow-multiple-definition
-                        -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
-                        -s )
+  if ( CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES ASan )
+    set( WORKER_LINK_FLAGS "" )
+  endif()
 
-if ( CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES ASan )
-  set( WORKER_LINK_FLAGS "" )
+  add_executable ( r2t2-lambda-worker src/frontend/lambda-worker.cc )
+  target_link_libraries( r2t2-lambda-worker ${ALL_R2T2_LIBS} ${WORKER_LINK_FLAGS} )
+
+  add_executable ( r2t2-lambda-aggregate src/frontend/lambda-aggregate.cc )
+  target_link_libraries( r2t2-lambda-aggregate ${ALL_R2T2_LIBS} )
+
+  add_executable ( r2t2-simulator src/frontend/simulator.cc )
+  target_link_libraries( r2t2-simulator ${ALL_R2T2_LIBS} )
+
+  add_executable ( load-treelet src/frontend/load-treelet.cc )
+  target_link_libraries( load-treelet ${ALL_R2T2_LIBS} )
+
+  add_executable ( camera-generator src/frontend/camera-generator.cc )
+  target_link_libraries( camera-generator ${ALL_R2T2_LIBS} )
+
+  add_executable ( path-tracer src/frontend/path-tracer.cc )
+  target_link_libraries( path-tracer ${ALL_R2T2_LIBS} )
+
+  add_executable ( split-rays src/frontend/split-rays.cc )
+  target_link_libraries( split-rays ${ALL_R2T2_LIBS} )
+
+  add_executable ( ray-client src/frontend/ray-client.cc )
+  target_link_libraries( ray-client ${ALL_R2T2_LIBS} )
 endif()
 
-add_executable ( r2t2-lambda-worker src/frontend/lambda-worker.cc )
-target_link_libraries( r2t2-lambda-worker ${ALL_R2T2_LIBS} ${WORKER_LINK_FLAGS} )
-
-add_executable ( r2t2-lambda-aggregate src/frontend/lambda-aggregate.cc )
-target_link_libraries( r2t2-lambda-aggregate ${ALL_R2T2_LIBS} )
-
-add_executable ( r2t2-simulator src/frontend/simulator.cc )
-target_link_libraries( r2t2-simulator ${ALL_R2T2_LIBS} )
-
-add_executable ( load-treelet src/frontend/load-treelet.cc )
-target_link_libraries( load-treelet ${ALL_R2T2_LIBS} )
-
-add_executable ( camera-generator src/frontend/camera-generator.cc )
-target_link_libraries( camera-generator ${ALL_R2T2_LIBS} )
-
-add_executable ( path-tracer src/frontend/path-tracer.cc )
-target_link_libraries( path-tracer ${ALL_R2T2_LIBS} )
-
-add_executable ( split-rays src/frontend/split-rays.cc )
-target_link_libraries( split-rays ${ALL_R2T2_LIBS} )
-
-add_executable ( ray-client src/frontend/ray-client.cc )
-target_link_libraries( ray-client ${ALL_R2T2_LIBS} )
+if (CMAKE_CHOOSE_CROSS)
+  if (CMAKE_CHOOSE_CROSS MATCHES riscv)
+    add_executable ( riscv-ray-client src/frontend/riscv-ray-client.cc )
+    target_link_libraries( riscv-ray-client ${ALL_R2T2_LIBS} )
+  endif()
+endif()
