@@ -60,15 +60,15 @@ set ( ALL_R2T2_LIBS
     r2t2_messages
     pbrt
     pbrt_messages
-    atomic
-    ${CMAKE_THREAD_LIBS_INIT}
-    IlmImf
-    Imath
-    Half
+    # atomic
+    # ${CMAKE_THREAD_LIBS_INIT}
+    # IlmImf
+    # Imath
+    # Half
     glog
     Ptex_static
     # ${LZ4_LIBRARY}
-    ${ZLIB_LIBRARY}
+    # ${ZLIB_LIBRARY}
     ${Protobuf_LIBRARIES}
     # ${OPENSSL_LIBRARIES}
 )
@@ -76,7 +76,7 @@ if (NOT CMAKE_CHOOSE_CROSS)
   add_executable ( r2t2-lambda-master src/frontend/lambda-master.cc )
   target_link_libraries( r2t2-lambda-master ${ALL_R2T2_LIBS} )
 
-  set ( WORKER_LINK_FLAGS dl z unwind lzma -static -Wl,-allow-multiple-definition
+  set ( WORKER_LINK_FLAGS  unwind  -static -Wl,-allow-multiple-definition
                           -Wl,--whole-archive -lpthread -Wl,--no-whole-archive
                           -s )
 
