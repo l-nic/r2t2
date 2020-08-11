@@ -191,6 +191,7 @@ int read_treelet(char** buffer, uint64_t* size) {
 // TODO: Same here. These should all really be combined.
 int read_base(char** buffer, uint64_t* size) {
     uint64_t header = csr_read(0x50);
+    uint32_t* header_buf = (uint32_t*)&header;
 
     // printf("Reading base data\n");
     // uint32_t header_buf[2];
@@ -203,11 +204,21 @@ int read_base(char** buffer, uint64_t* size) {
     //         return -1;
     //     }
     // } while (total_len < 2*sizeof(uint32_t));
-    // printf("message id is %d and size is %d\n", header_buf[0], header_buf[1]);
-    // if (header_buf[0] != BASE_MSG_LOAD_ID) {
-    //     return -1;
-    // }
-    // *buffer = new char[header_buf[1]];
+    printf("message id is %d and size is %d\n", header_buf[0], header_buf[1]);
+    if (header_buf[0] != BASE_MSG_LOAD_ID) {
+        return -1;
+    }
+    uint32_t buf_size = header_buf[1];
+    buf_size += sizeof(uint64_t) - (buf_size % sizeof(uint64_t)); // Round up to 64-bit words
+    *buffer = new char[buf_size];
+
+    for(uint32_t offset = 0; offset < buf_size; offset += sizeof(uint64_t)) {
+        // printf("Loading offset %d\n", offset);
+        uint64_t data = csr_read(0x50);
+        // printf("%#lx\n", data);
+        memcpy(*buffer + offset, &data, sizeof(uint64_t));
+    }
+    *size = header_buf[1];
 
     // total_len = 0;
     // do {
@@ -218,16 +229,17 @@ int read_base(char** buffer, uint64_t* size) {
     //     }
     // } while (total_len < header_buf[1]);
     // *size = total_len;
-    // printf("Read all treelet data with size %d\n", *size);
+    printf("Read all treelet data with size %d\n", *size);
     // return 0;
+    return 0;
 }
 
 int main( int argc, char* argv[] )
 {
   //printf("%ld\n", csr_read(0x50));
-  uint64_t intial_data = csr_read(0x50);
-  uint32_t* data_ref = (uint32_t*)&intial_data;
-  printf("%d, %d\n", data_ref[0], data_ref[1]);
+//   uint64_t intial_data = csr_read(0x50);
+//   uint32_t* data_ref = (uint32_t*)&intial_data;
+//   printf("%d, %d\n", data_ref[0], data_ref[1]);
   if ( argc <= 0 ) {
     abort();
   }
@@ -255,16 +267,18 @@ int main( int argc, char* argv[] )
 //       return -1;
 //   }
 
-//   char* base_buffer = nullptr;
-//   uint64_t base_size = 0;
-//   int base_retval = read_base(&base_buffer, &base_size);
-//   if (base_retval < 0) {
-//       fprintf(stderr, "Unable to read base\n");
-//       return -1;
-//   }
-  char* base_buffer = new char[1000];
-  uint64_t base_size = 1000;
+  char* base_buffer = nullptr;
+  uint64_t base_size = 0;
+  int base_retval = read_base(&base_buffer, &base_size);
+  if (base_retval < 0) {
+      fprintf(stderr, "Unable to read base\n");
+      return -1;
+  }
+  printf("Loading network base\n");
+  //char* base_buffer = new char[1000];
+  //uint64_t base_size = 1000;
   pbrt::scene::Base scene_base = pbrt::scene::LoadNetworkBase(base_buffer, base_size, samples_per_pixel);
+  printf("Loaded network base\n");
   delete [] base_buffer;
 
   //for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
