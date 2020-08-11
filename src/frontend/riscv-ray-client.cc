@@ -189,7 +189,7 @@ int read_treelet(char** buffer, uint64_t* size) {
 }
 
 // TODO: Same here. These should all really be combined.
-int read_base(char** buffer, uint64_t* size) {
+int read_buffer(char** buffer, uint64_t* size, uint32_t msg_type) {
     uint64_t header = csr_read(0x50);
     uint32_t* header_buf = (uint32_t*)&header;
 
@@ -205,7 +205,7 @@ int read_base(char** buffer, uint64_t* size) {
     //     }
     // } while (total_len < 2*sizeof(uint32_t));
     printf("message id is %d and size is %d\n", header_buf[0], header_buf[1]);
-    if (header_buf[0] != BASE_MSG_LOAD_ID) {
+    if (header_buf[0] != msg_type) {
         return -1;
     }
     uint32_t buf_size = header_buf[1];
@@ -269,7 +269,7 @@ int main( int argc, char* argv[] )
 
   char* base_buffer = nullptr;
   uint64_t base_size = 0;
-  int base_retval = read_base(&base_buffer, &base_size);
+  int base_retval = read_buffer(&base_buffer, &base_size, BASE_MSG_LOAD_ID);
   if (base_retval < 0) {
       fprintf(stderr, "Unable to read base\n");
       return -1;
@@ -285,7 +285,8 @@ int main( int argc, char* argv[] )
   //treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
   char* buffer = nullptr;
   uint64_t size = 0;
-  int treelet_retval = read_treelet(&buffer, &size);
+  printf("Reading treelet\n");
+  int treelet_retval = read_buffer(&buffer, &size, TREELET_MSG_LOAD_ID);
   if (treelet_retval < 0) {
       fprintf(stderr, "Unable to read treelet\n");
       return -1;
@@ -294,8 +295,11 @@ int main( int argc, char* argv[] )
       char* current_offset = buffer + j*sizeof(uint32_t);
       printf("%#x\n", *(uint32_t*)current_offset);
     }
+  printf("Loading network treelet\n");
   shared_ptr<pbrt::CloudBVH> treelet = pbrt::scene::LoadNetworkTreelet(_treelet_id, buffer, size);
+  printf("Loaded network treelet\n");
   delete [] buffer;
+  while (1);
   //}
 
   /* (3) generating all the initial rays */
