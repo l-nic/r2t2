@@ -190,6 +190,8 @@ int read_treelet(char** buffer, uint64_t* size) {
 
 // TODO: Same here. These should all really be combined.
 int read_base(char** buffer, uint64_t* size) {
+    uint64_t header = csr_read(0x50);
+
     // printf("Reading base data\n");
     // uint32_t header_buf[2];
     // ssize_t total_len = 0;
@@ -222,7 +224,10 @@ int read_base(char** buffer, uint64_t* size) {
 
 int main( int argc, char* argv[] )
 {
-  printf("%ld\n", csr_read(0x50));
+  //printf("%ld\n", csr_read(0x50));
+  uint64_t intial_data = csr_read(0x50);
+  uint32_t* data_ref = (uint32_t*)&intial_data;
+  printf("%d, %d\n", data_ref[0], data_ref[1]);
   if ( argc <= 0 ) {
     abort();
   }
