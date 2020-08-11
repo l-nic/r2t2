@@ -123,6 +123,7 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
 }
 
 void write_to_generator(char* buffer, uint32_t data_len) {
+    printf("attempted to write\n");
     // ssize_t written_len = write(_ray_generator_fd, buffer, data_len);
     // if (written_len <= 0) {
     //     cerr << "Error writing to treelet" << endl;
@@ -130,18 +131,21 @@ void write_to_generator(char* buffer, uint32_t data_len) {
 }
 
 void send_ray(pbrt::RayStatePtr ray) {
+    printf("sending ray\n");
     uint64_t packed_ray_size = pbrt::RayState::MaxPackedSize + 3*sizeof(uint32_t);
     char* ray_buffer = new char[packed_ray_size];
     uint32_t ray_treelet_dest = ray->CurrentTreelet();
     uint32_t ray_msg_load_id = RAY_MSG_ID;
     memcpy(ray_buffer, &ray_treelet_dest, sizeof(uint32_t));
     memcpy(ray_buffer + sizeof(uint32_t), &ray_msg_load_id, sizeof(uint32_t));
+    printf("entering serialize\n");
     uint64_t actual_len = ray->Serialize(ray_buffer + 2*sizeof(uint32_t));
     write_to_generator(ray_buffer, actual_len + 2*sizeof(uint32_t));
     delete [] ray_buffer;
 }
 
 void send_sample(pbrt::Sample sample) {
+    printf("sending sample\n");
     uint64_t packed_sample_size = sample.Size() + 3*sizeof(uint32_t);
     char* sample_buffer = new char[packed_sample_size];
     uint32_t msg_dest = _num_treelets;
@@ -189,7 +193,7 @@ int read_treelet(char** buffer, uint64_t* size) {
 }
 
 // TODO: Same here. These should all really be combined.
-int read_buffer(char** buffer, uint64_t* size, uint32_t msg_type) {
+int read_buffer(char** buffer, uint32_t* size, uint32_t msg_type, uint32_t alt_msg_type) {
     uint64_t header = csr_read(0x50);
     uint32_t* header_buf = (uint32_t*)&header;
 
@@ -206,7 +210,9 @@ int read_buffer(char** buffer, uint64_t* size, uint32_t msg_type) {
     // } while (total_len < 2*sizeof(uint32_t));
     printf("message id is %d and size is %d\n", header_buf[0], header_buf[1]);
     if (header_buf[0] != msg_type) {
-        return -1;
+        if (header_buf[0] != alt_msg_type || alt_msg_type == ERROR_MSG_ID) {
+          return -1;
+        }
     }
     uint32_t buf_size = header_buf[1];
     buf_size += sizeof(uint64_t) - (buf_size % sizeof(uint64_t)); // Round up to 64-bit words
@@ -268,8 +274,8 @@ int main( int argc, char* argv[] )
 //   }
 
   char* base_buffer = nullptr;
-  uint64_t base_size = 0;
-  int base_retval = read_buffer(&base_buffer, &base_size, BASE_MSG_LOAD_ID);
+  uint32_t base_size = 0;
+  int base_retval = read_buffer(&base_buffer, &base_size, BASE_MSG_LOAD_ID, ERROR_MSG_ID);
   if (base_retval < 0) {
       fprintf(stderr, "Unable to read base\n");
       return -1;
@@ -284,9 +290,9 @@ int main( int argc, char* argv[] )
   //for ( size_t i = 0; i < scene_base.GetTreeletCount(); i++ ) {
   //treelets.push_back( pbrt::scene::LoadNetworkTreelet( scene_path, i ) );
   char* buffer = nullptr;
-  uint64_t size = 0;
+  uint32_t size = 0;
   printf("Reading treelet\n");
-  int treelet_retval = read_buffer(&buffer, &size, TREELET_MSG_LOAD_ID);
+  int treelet_retval = read_buffer(&buffer, &size, TREELET_MSG_LOAD_ID, ERROR_MSG_ID);
   if (treelet_retval < 0) {
       fprintf(stderr, "Unable to read treelet\n");
       return -1;
@@ -299,7 +305,7 @@ int main( int argc, char* argv[] )
   shared_ptr<pbrt::CloudBVH> treelet = pbrt::scene::LoadNetworkTreelet(_treelet_id, buffer, size);
   printf("Loaded network treelet\n");
   delete [] buffer;
-  while (1);
+  //while (1);
   //}
 
   /* (3) generating all the initial rays */
@@ -327,6 +333,7 @@ int main( int argc, char* argv[] )
 
   pbrt::MemoryArena arena;
   int ray_count = 0;
+  printf("Entering main loop\n");
 
   while (true) {
     pbrt::RayStatePtr ray(new pbrt::RayState());
@@ -334,18 +341,22 @@ int main( int argc, char* argv[] )
     //     ray = move(ray_queue.front());
     //     ray_queue.pop();
     // } else {
-        char* buffer = new char[pbrt::RayState::MaxPackedSize];
+        char* buffer = nullptr;
         uint32_t data_len;
-        int read_retval = read_from_generator(buffer, &data_len);
+        printf("Reading ray\n");
+        int read_retval = read_buffer(&buffer, &data_len, RAY_MSG_ID, RAY_MSG_LOAD_ID);
         if (read_retval < 0) {
-        return -1;
+            return -1;
         }
+        printf("Deserializing ray\n");
         ray->Deserialize(buffer, data_len);
         delete [] buffer;
         if (ray_count % 1000 == 0) {
             printf("Received ray %d\n", ray_count);
         }
         ray_count++;
+        printf("Received ray\n");
+        //while (1);
    // }
 
     // for (int i = 0; i < ray->toVisitHead; i++) {
@@ -368,7 +379,9 @@ int main( int argc, char* argv[] )
     into the ray_queue for further processing, or into samples when they are
     done. */
     if ( not ray->toVisitEmpty() ) {
+        printf("TRACING RAY\n");
       auto new_ray = pbrt::graphics::TraceRay( move( ray ), *treelet );
+      printf("ray traced\n");
 
       const bool hit = new_ray->HasHit();
       const bool empty_visit = new_ray->toVisitEmpty();
@@ -387,6 +400,7 @@ int main( int argc, char* argv[] )
         send_sample( *new_ray ); // this ray is done
       }
     } else if ( ray->HasHit() ) {
+        printf("SHADING RAY\n");
       auto [bounce_ray, shadow_ray]
         = pbrt::graphics::ShadeRay( move( ray ),
                                     *treelet,
@@ -395,6 +409,7 @@ int main( int argc, char* argv[] )
                                     scene_base.sampler,
                                     max_depth,
                                     arena );
+        printf("ray shaded\n");
 
       if ( bounce_ray != nullptr ) {
         send_ray( move( bounce_ray ) ); // back to the ray queue
