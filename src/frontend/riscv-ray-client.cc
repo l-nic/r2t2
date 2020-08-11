@@ -127,21 +127,34 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
 }
 
 void write_to_generator(char* buffer, uint32_t data_len) {
-    uint32_t data_buf[2];
-    data_buf[0] = 1;
-    data_buf[1] = 5;
-    uint64_t data = *(uint64_t*)data_buf;
-    printf("starting csr write\n");
-    csr_write(0x51, data);
-    data_buf[0] = 12;
-    data_buf[1] = 1;
-    data = *(uint64_t*)data_buf;
-    csr_write(0x51, data);
-    data_buf[0] = 3;
-    data_buf[1] = 4;
-    data = *(uint64_t*)data_buf;
-    csr_write(0x51, data);
+    // uint32_t data_buf[2];
+    // data_buf[0] = 1;
+    // data_buf[1] = 5;
+    // uint64_t data = *(uint64_t*)data_buf;
+    // printf("starting csr write\n");
+    // csr_write(0x51, data);
+    // data_buf[0] = 12;
+    // data_buf[1] = 1;
+    // data = *(uint64_t*)data_buf;
+    // csr_write(0x51, data);
+    // data_buf[0] = 3;
+    // data_buf[1] = 4;
+    // data = *(uint64_t*)data_buf;
+    // csr_write(0x51, data);
     printf("attempted to write\n");
+    uint32_t num_words = data_len / sizeof(uint64_t);
+    uint64_t* buf_words = (uint64_t*)buffer;
+    for (uint32_t i = 0; i < num_words; i++) {
+        csr_write(0x51, buf_words[i]);
+    }
+    if (data_len % sizeof(uint64_t) != 0) {
+        // We have some leftover data to write
+        uint32_t remaining_bytes = data_len % sizeof(uint64_t);
+        uint64_t remaining_word;
+        memcpy(&remaining_word, buffer + num_words*sizeof(uint64_t), remaining_bytes);
+        memset((char*)&remaining_word + remaining_bytes, 0, sizeof(uint64_t) - remaining_bytes);
+        csr_write(0x51, remaining_word);
+    }
     // ssize_t written_len = write(_ray_generator_fd, buffer, data_len);
     // if (written_len <= 0) {
     //     cerr << "Error writing to treelet" << endl;
