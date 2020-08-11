@@ -60,6 +60,10 @@ uint32_t _num_treelets = -1;
             : "memory");      \
 })
 
+#define swap_csr(reg, val) ({ unsigned long __tmp; \
+  asm volatile ("csrrw %0, " #reg ", %1" : "=r"(__tmp) : "rK"(val)); \
+  __tmp; })
+
 
 /* This is a simple ray tracer, built using the api provided by r2t2's fork of
 pbrt. */
@@ -123,6 +127,20 @@ int read_from_generator(char* buffer, uint32_t* data_len) {
 }
 
 void write_to_generator(char* buffer, uint32_t data_len) {
+    uint32_t data_buf[2];
+    data_buf[0] = 1;
+    data_buf[1] = 5;
+    uint64_t data = *(uint64_t*)data_buf;
+    printf("starting csr write\n");
+    csr_write(0x51, data);
+    data_buf[0] = 12;
+    data_buf[1] = 1;
+    data = *(uint64_t*)data_buf;
+    csr_write(0x51, data);
+    data_buf[0] = 3;
+    data_buf[1] = 4;
+    data = *(uint64_t*)data_buf;
+    csr_write(0x51, data);
     printf("attempted to write\n");
     // ssize_t written_len = write(_ray_generator_fd, buffer, data_len);
     // if (written_len <= 0) {
@@ -194,6 +212,7 @@ int read_treelet(char** buffer, uint64_t* size) {
 
 // TODO: Same here. These should all really be combined.
 int read_buffer(char** buffer, uint32_t* size, uint32_t msg_type, uint32_t alt_msg_type) {
+    while (csr_read(0x52) == 0); // Wait for a message to arrive
     uint64_t header = csr_read(0x50);
     uint32_t* header_buf = (uint32_t*)&header;
 
