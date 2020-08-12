@@ -72,8 +72,8 @@ set ( ALL_R2T2_LIBS
     ${OPENSSL_LIBRARIES}
 )
 
-add_executable ( r2t2-lambda-master src/frontend/lambda-master.cc )
-target_link_libraries( r2t2-lambda-master ${ALL_R2T2_LIBS} )
+#add_executable ( r2t2-lambda-master src/frontend/lambda-master.cc )
+#target_link_libraries( r2t2-lambda-master ${ALL_R2T2_LIBS} )
 
 set ( WORKER_LINK_FLAGS dl z unwind lzma -static -Wl,-allow-multiple-definition
                         -Wl,--whole-archive -lpthread -Wl,--no-whole-archive

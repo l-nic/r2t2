@@ -277,6 +277,8 @@ int main( int argc, char* argv[] )
     _send_mutex[i].unlock();
 
     send_to_client(i, base_to_send, base_size + 2*sizeof(uint32_t));
+    printf("Sent base data\n");
+    //while (1);
 
     // TODO: This is definitely way too many copies.
     string treelet_file_name = scene_path + "/T" + to_string(i);
@@ -312,6 +314,7 @@ int main( int argc, char* argv[] )
     }
     send_to_client(i, to_send, size + 2*sizeof(uint32_t));
     delete [] to_send;
+    //while (1);
   }
 
   delete [] base_to_send;
@@ -352,6 +355,11 @@ int main( int argc, char* argv[] )
       send_to_client(current_ray->CurrentTreelet(), ray_buffer, actual_len + sizeof(uint32_t));
       delete [] ray_buffer;
       total_ray_count++;
+      //printf("Sent ray\n");
+      // if (total_ray_count == 1000) {
+      //   while (1);
+      // }
+      //while (1);
     }
   }
   printf("sent all samples\n");
