@@ -32,6 +32,12 @@
 // The root will start off by writing out initial rays, and will then enter an event loop where it receives all incoming messages,
 // processes them if they're intended for it, or forwards them back out to the actual destination if they're intended for another treelet.
 
+extern int _end;
+char* data_end = (char*)&_end + 16348;
+extern "C" {
+extern void sbrk_init(long int* init_addr);
+};
+
 
 #define SERVER_IP_ADDR "127.0.0.1"
 #define SERVER_PORT 5000
@@ -70,7 +76,7 @@ pbrt. */
 
 void usage( char* argv0 )
 {
-  cerr << argv0 << " SCENE-PATH [SAMPLES-PER-PIXEL] TREELET_ID NUM_TREELETS" << endl;
+  printf("usage SCENE-PATH [SAMPLES-PER-PIXEL] TREELET_ID NUM_TREELETS\n");
 }
 
 int start_client_socket(const char* ip_address, uint16_t port) {
@@ -249,12 +255,15 @@ int read_buffer(char** buffer, uint32_t* size, uint32_t msg_type, uint32_t alt_m
     uint32_t buf_size = header_buf[1];
     buf_size += sizeof(uint64_t) - (buf_size % sizeof(uint64_t)); // Round up to 64-bit words
     *buffer = new char[buf_size];
+    printf("allocated buffer for new message at %#lx\n", *buffer);
 
     for(uint32_t offset = 0; offset < buf_size; offset += sizeof(uint64_t)) {
         // printf("Loading offset %d\n", offset);
-        uint64_t data = csr_read(0x50);
+        volatile uint64_t data = csr_read(0x50);
+        printf("offset %d, data %#lx\n", offset, data);
         // printf("%#lx\n", data);
-        memcpy(*buffer + offset, &data, sizeof(uint64_t));
+        *(uint64_t*)(*buffer + offset) = data;
+        //memcpy(*buffer + offset, &data, sizeof(uint64_t));
     }
     *size = header_buf[1];
 
@@ -272,10 +281,29 @@ int read_buffer(char** buffer, uint32_t* size, uint32_t msg_type, uint32_t alt_m
     return 0;
 }
 
-extern "C" {
-int ray_main(int argc, char** argv)
+extern char* current_brk;
+extern volatile int wait;
+
+namespace pbrt {
+namespace global {
+extern SceneManager *manager;
+}
+}
+
+int main(int argc, char** argv)
 {
+  while (wait) {
+    printf("Wait is %d\n", wait);
+    for (int i = 0; i < 10000; i++) {
+      asm volatile("nop");
+    }
+  }
+  uint64_t stack_var = 0xdeadbeef;
+  printf("stack var addr %#lx and value %#lx\n", &stack_var, stack_var);
+  printf("heap start %#lx and difference %ld\n", data_end, (uint64_t)&stack_var - (uint64_t)data_end);
   printf("Starting library\n");
+  sbrk_init((long int*)data_end);
+  pbrt::global::manager = pbrt::CreateSceneManager();
   //printf("%ld\n", csr_read(0x50));
 //   uint64_t intial_data = csr_read(0x50);
 //   uint32_t* data_ref = (uint32_t*)&intial_data;
@@ -315,6 +343,7 @@ int ray_main(int argc, char** argv)
       return -1;
   }
   printf("Loading network base\n");
+  printf("current brk is %#lx\n", current_brk);
   //char* base_buffer = new char[1000];
   //uint64_t base_size = 1000;
   pbrt::scene::Base scene_base = pbrt::scene::LoadNetworkBase(base_buffer, base_size, samples_per_pixel);
@@ -461,6 +490,3 @@ int ray_main(int argc, char** argv)
 
   return EXIT_SUCCESS;
 }
-
-}; // end extern "C"
-
