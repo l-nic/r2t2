@@ -33,8 +33,8 @@
 // processes them if they're intended for it, or forwards them back out to the actual destination if they're intended for another treelet.
 
 extern int _end;
-char* data_end = (char*)&_end + 16348;
 extern "C" {
+char* data_end = (char*)&_end + 16384*4;
 extern void sbrk_init(long int* init_addr);
 };
 
@@ -184,6 +184,7 @@ void send_ray(pbrt::RayStatePtr ray) {
 void send_sample(pbrt::Sample sample) {
     printf("sending sample\n");
     uint64_t packed_sample_size = sample.Size() + 3*sizeof(uint32_t);
+    printf("sending sample with size %ld\n", packed_sample_size);
     char* sample_buffer = new char[packed_sample_size];
     uint32_t msg_dest = _num_treelets;
     uint32_t msg_id = SAMPLE_MSG_ID;
@@ -191,6 +192,7 @@ void send_sample(pbrt::Sample sample) {
     memcpy(sample_buffer, &msg_dest, sizeof(uint32_t));
     memcpy(sample_buffer + sizeof(uint32_t), &msg_id, sizeof(uint32_t));
     uint64_t actual_len = sample.Serialize(sample_buffer + 2*sizeof(uint32_t));
+    printf("Sample actual len is %ld\n", actual_len);
     write_to_generator(sample_buffer, actual_len + 2*sizeof(uint32_t));
     delete [] sample_buffer;
 }
@@ -260,10 +262,10 @@ int read_buffer(char** buffer, uint32_t* size, uint32_t msg_type, uint32_t alt_m
     for(uint32_t offset = 0; offset < buf_size; offset += sizeof(uint64_t)) {
         // printf("Loading offset %d\n", offset);
         volatile uint64_t data = csr_read(0x50);
-        printf("offset %d, data %#lx\n", offset, data);
+        //printf("offset %d, data %#lx\n", offset, data);
         // printf("%#lx\n", data);
-        *(uint64_t*)(*buffer + offset) = data;
-        //memcpy(*buffer + offset, &data, sizeof(uint64_t));
+        //*(uint64_t*)(*buffer + offset) = data;
+        memcpy(*buffer + offset, (const void*)&data, sizeof(uint64_t));
     }
     *size = header_buf[1];
 
@@ -290,19 +292,26 @@ extern SceneManager *manager;
 }
 }
 
+extern "C" {
+  extern void __libc_init_array();
+  extern void __libc_fini_array();
+}
+
 int main(int argc, char** argv)
 {
-  while (wait) {
-    printf("Wait is %d\n", wait);
-    for (int i = 0; i < 10000; i++) {
-      asm volatile("nop");
-    }
-  }
+  // while (wait) {
+  //   printf("Wait is %d\n", wait);
+  //   for (int i = 0; i < 10000; i++) {
+  //     asm volatile("nop");
+  //   }
+  // }
   uint64_t stack_var = 0xdeadbeef;
   printf("stack var addr %#lx and value %#lx\n", &stack_var, stack_var);
   printf("heap start %#lx and difference %ld\n", data_end, (uint64_t)&stack_var - (uint64_t)data_end);
   printf("Starting library\n");
   sbrk_init((long int*)data_end);
+  atexit(__libc_fini_array);
+  __libc_init_array();
   pbrt::global::manager = pbrt::CreateSceneManager();
   //printf("%ld\n", csr_read(0x50));
 //   uint64_t intial_data = csr_read(0x50);
@@ -320,8 +329,10 @@ int main(int argc, char** argv)
   const size_t max_depth = 5;
   const string scene_path { argv[1] };
   const size_t samples_per_pixel = ( argc > 2 ) ? stoull( argv[2] ) : 0;
+  printf("samples per pixel is %d\n", samples_per_pixel);
   _treelet_id = stoull(argv[3]);
   _num_treelets = stoull(argv[4]);
+  printf("number of treelets is %d\n", _num_treelets);
 
   /* (1) loading the scene */
   // auto scene_base = pbrt::scene::LoadBase( scene_path, samples_per_pixel );
@@ -394,7 +405,7 @@ int main(int argc, char** argv)
   /* (4) tracing rays to completing */
 //  vector<pbrt::Sample> samples;
 
-  pbrt::MemoryArena arena;
+  pbrt::MemoryArena* arena = new pbrt::MemoryArena;
   int ray_count = 0;
   printf("Entering main loop\n");
 
@@ -411,14 +422,14 @@ int main(int argc, char** argv)
         if (read_retval < 0) {
             return -1;
         }
-        printf("Deserializing ray\n");
+        //printf("Deserializing ray\n");
         ray->Deserialize(buffer, data_len);
         delete [] buffer;
-        if (ray_count % 1000 == 0) {
-            printf("Received ray %d\n", ray_count);
-        }
+        // if (ray_count % 1000 == 0) {
+        //     printf("Received ray %d\n", ray_count);
+        // }
         ray_count++;
-        printf("Received ray\n");
+        //printf("Received ray\n");
         //while (1);
    // }
 
@@ -471,7 +482,7 @@ int main(int argc, char** argv)
                                     scene_base.sampleExtent,
                                     scene_base.sampler,
                                     max_depth,
-                                    arena );
+                                    *arena );
         printf("ray shaded\n");
 
       if ( bounce_ray != nullptr ) {
