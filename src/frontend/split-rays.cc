@@ -170,13 +170,15 @@ void handle_client_reads(uint32_t treelet) {
         pbrt::Sample sample;
         sample.Deserialize(buffer + 2*sizeof(uint32_t), header_buf[2]);
         _sample_lock.lock();
+        cout << _sample_count << ", " << treelet << ", " << sample.sampleId << ", " << sample.pFilm << ", " << sample.weight << ", " << sample.L << endl;
         _all_samples.emplace_back(move(sample));
         // if (total_sample_count % 100 == 0) {
         //   pbrt::graphics::AccumulateImage( scene_base.camera, _all_samples );
         //   pbrt::graphics::WriteImage( scene_base.camera );
         // }
-        printf("Sample count %d\n", _sample_count);
-        if (_sample_count % 10000 == 0) {
+        //printf("Sample count %d\n", _sample_count);
+        if (_sample_count % 1000 == 0) {
+          //exit(-1);
           pbrt::graphics::AccumulateImage( scene_base.camera, _all_samples );
           pbrt::graphics::WriteImage( scene_base.camera );   
         }
@@ -356,7 +358,7 @@ int main( int argc, char* argv[] )
       delete [] ray_buffer;
       total_ray_count++;
       //printf("Sent ray\n");
-      // if (total_ray_count == 1000) {
+      // if (total_ray_count == 4000) {
       //   while (1);
       // }
       //while (1);
