@@ -111,17 +111,8 @@ endif()
 
 if (CMAKE_CHOOSE_CROSS)
   if (CMAKE_CHOOSE_CROSS MATCHES riscv)
-    # add_library(riscv-rays STATIC src/frontend/riscv-ray-library.cc src/frontend/riscv-ray-library.h)
-    # target_link_libraries(riscv-rays ${ALL_R2T2_LIBS}  -T /home/amallery/chipyard/tests/link.ld -nostartfiles -lgcc)
-
-    # add_executable ( riscv-ray-client src/frontend/riscv-ray-client.cc )
-    # target_link_libraries( riscv-ray-client riscv-rays)
-
-    # add_executable(nanopu-ray-client ../../../tests/crt.o ../../../tests/syscalls.o src/frontend/riscv-ray-library.cc)
-    # target_link_libraries( nanopu-ray-client ${ALL_R2T2_LIBS} -T /home/amallery/chipyard/tests/link.ld -nostartfiles -lgcc)
-
     add_executable(nanopu-ray-client ../../../tests/crt.o ../../../tests/syscalls.o src/frontend/riscv-ray-library.cc)
-    target_link_libraries( nanopu-ray-client ${ALL_R2T2_LIBS} -T /home/amallery/git/libgloss-htif/util/htif.ld -nostartfiles -lgcc)
+    target_link_libraries( nanopu-ray-client ${ALL_R2T2_LIBS} -T /home/vagrant/chipyard/tests/link.ld -nostartfiles -lgcc)
 
 
   endif()

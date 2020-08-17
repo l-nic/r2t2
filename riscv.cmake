@@ -1,6 +1,6 @@
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR riscv)
-set(tools /home/amallery/chipyard/riscv-tools-install)
+set(tools /home/vagrant/chipyard/riscv-tools-install)
 set(CMAKE_C_COMPILER ${tools}/bin/riscv64-unknown-elf-gcc CACHE STRING "C compiler" FORCE)
 set(CMAKE_CXX_COMPILER ${tools}/bin/riscv64-unknown-elf-g++ CACHE STRING "C++ compiler" FORCE)
 set(CMAKE_FIND_ROOT_PATH ${tools}/riscv64-unknown-elf)
