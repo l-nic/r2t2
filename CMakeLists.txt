@@ -83,8 +83,8 @@ if ( CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES ASan )
   set( WORKER_LINK_FLAGS "" )
 endif()
 
-add_executable ( r2t2-lambda-worker src/frontend/lambda-worker.cc )
-target_link_libraries( r2t2-lambda-worker ${ALL_R2T2_LIBS} ${WORKER_LINK_FLAGS} )
+# add_executable ( r2t2-lambda-worker src/frontend/lambda-worker.cc )
+# target_link_libraries( r2t2-lambda-worker ${ALL_R2T2_LIBS} ${WORKER_LINK_FLAGS} )
 
 add_executable ( r2t2-lambda-aggregate src/frontend/lambda-aggregate.cc )
 target_link_libraries( r2t2-lambda-aggregate ${ALL_R2T2_LIBS} )

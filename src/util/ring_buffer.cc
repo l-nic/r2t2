@@ -1,9 +1,18 @@
 #include <iostream>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #include "exception.hh"
 #include "ring_buffer.hh"
+
+#if !defined(__NR_memfd_create)
+#define __NR_memfd_create 319
+#endif
+
+static inline int fake_memfd_create(const char* name, unsigned int flags) {
+  return syscall(__NR_memfd_create, name, flags);
+}
 
 using namespace std;
 
@@ -39,7 +48,7 @@ RingBuffer::RingBuffer( const size_t capacity )
                            + to_string( sysconf( _SC_PAGESIZE ) ) + ")" );
     }
     FileDescriptor fd { SystemCall( "memfd_create",
-                                    memfd_create( "RingBuffer", 0 ) ) };
+                                    fake_memfd_create( "RingBuffer", 0 ) ) };
     SystemCall( "ftruncate", ftruncate( fd.fd_num(), capacity ) );
     return fd;
   }() )
